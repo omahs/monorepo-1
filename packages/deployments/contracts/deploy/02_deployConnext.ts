@@ -1,6 +1,6 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction, Facet } from "hardhat-deploy/types";
-import { constants, Contract, providers, Wallet } from "ethers";
+import { constants, Contract, providers, utils, Wallet } from "ethers";
 import { FunctionFragment, Interface } from "ethers/lib/utils";
 import { FacetCut, FacetCutAction, ExtendedArtifact, DeploymentSubmission } from "hardhat-deploy/dist/types";
 import { mergeABIs } from "hardhat-deploy/dist/src/utils";
@@ -9,12 +9,6 @@ import { SKIP_SETUP } from "../src/constants";
 import { getConnectorName, getDeploymentName, getProtocolNetwork, getRelayerProxyConfig } from "../src/utils";
 import { chainIdToDomain } from "../src";
 import { MESSAGING_PROTOCOL_CONFIGS } from "../deployConfig/shared";
-
-function sigsFromABI(abi: any[]): string[] {
-  return abi
-    .filter((fragment: any) => fragment.type === "function")
-    .map((fragment: any) => Interface.getSighash(FunctionFragment.from(fragment as unknown as FunctionFragment)));
-}
 
 type FacetOptions = {
   name: string;
@@ -32,122 +26,22 @@ const proposeDiamondUpgrade = async (
   const existingDeployment = (await hre.deployments.getOrNull(getDeploymentName("Connext")))!;
   const contract = new Contract(existingDeployment.address, existingDeployment?.abi, deployer);
 
-  const oldFacets: { facetAddress: string; functionSelectors: string[] }[] = await contract.facets();
-  const oldSelectors: string[] = [];
-  const oldSelectorsFacetAddress: { [selector: string]: string } = {};
-  for (const oldFacet of oldFacets) {
-    for (const selector of oldFacet.functionSelectors) {
-      oldSelectors.push(selector);
-      oldSelectorsFacetAddress[selector] = oldFacet.facetAddress;
-    }
-  }
-
-  const diamondArtifact: ExtendedArtifact = await hre.deployments.getExtendedArtifact("ConnextDiamond");
-  let abi: any[] = diamondArtifact.abi.concat([]);
-
-  // Add DiamondLoupeFacet
-  facets.push({
-    name: "_DefaultDiamondLoupeFacet",
-    contract: "DiamondLoupeFacet",
-    args: [],
-    deterministic: true,
-  });
-
-  let changesDetected = false;
-
-  // Deploy new facets + retrieve selectors
-  const newSelectors: string[] = [];
-  const facetSnapshot: Facet[] = [];
-  for (const facet of facets) {
-    // NOTE: copied from: https://github.com/wighawag/hardhat-deploy/blob/3d08a33a6ae9404bf56187c4f49ec359427672eb/src/helpers.ts#L1792-L2443
-    // NOTE: update if linkedData / libraries / facetArgs are included in deploy script
-
-    // Deploy new facet if needed
-    const implementation = await hre.deployments.deploy(facet.name, {
-      contract: facet.contract,
-      args: facet.args,
-      from: deployer.address,
-      log: true,
-      deterministicDeployment: true,
-    });
-
-    // Update selectors and snapshot
-    const functionSelectors = sigsFromABI(implementation.abi);
-    facetSnapshot.push({
-      facetAddress: implementation.address,
-      functionSelectors,
-    });
-    newSelectors.push(...functionSelectors);
-
-    abi = mergeABIs([abi, implementation.abi], {
-      check: true,
-      skipSupportsInterface: false,
-    });
-  }
-
-  // Find selectors to add and selectors to replace
-  const facetCuts: FacetCut[] = [];
-  for (const newFacet of facetSnapshot) {
-    const selectorsToAdd: string[] = [];
-    const selectorsToReplace: string[] = [];
-
-    for (const selector of newFacet.functionSelectors) {
-      if (oldSelectors.indexOf(selector) >= 0) {
-        if (oldSelectorsFacetAddress[selector].toLowerCase() !== newFacet.facetAddress.toLowerCase()) {
-          selectorsToReplace.push(selector);
-        }
-      } else {
-        selectorsToAdd.push(selector);
-      }
-    }
-
-    if (selectorsToReplace.length > 0) {
-      changesDetected = true;
-      facetCuts.push({
-        facetAddress: newFacet.facetAddress,
-        functionSelectors: selectorsToReplace,
-        action: FacetCutAction.Replace,
-      });
-    }
-
-    if (selectorsToAdd.length > 0) {
-      changesDetected = true;
-      facetCuts.push({
-        facetAddress: newFacet.facetAddress,
-        functionSelectors: selectorsToAdd,
-        action: FacetCutAction.Add,
-      });
-    }
-
-    console.log("trying to add:", selectorsToAdd);
-    console.log("trying to replace:", selectorsToReplace);
-  }
-
-  // Get facet selectors to delete
-  const selectorsToDelete: string[] = [];
-  for (const selector of oldSelectors) {
-    if (newSelectors.indexOf(selector) === -1) {
-      selectorsToDelete.push(selector);
-    }
-  }
-
-  console.log("trying to remove:", selectorsToDelete);
-  if (selectorsToDelete.length > 0) {
-    changesDetected = true;
-    facetCuts.unshift({
-      facetAddress: "0x0000000000000000000000000000000000000000",
-      functionSelectors: selectorsToDelete,
-      action: FacetCutAction.Remove,
-    });
-  }
-
-  // If no changes detected, do nothing
-  if (!changesDetected) {
-    return { cuts: facetCuts, tx: undefined, abi: undefined };
-  }
-
   // Make sure this isnt a duplicate proposal (i.e. you aren't just resetting times)
-  const acceptanceTime = await contract.getAcceptanceTime(facetCuts, constants.AddressZero, "0x");
+  const initFix = await hre.deployments.deploy("DiamondInitFix", {
+    contract: "DiamondInitFix",
+    args: [],
+    from: deployer.address,
+    log: true,
+    deterministicDeployment: true,
+  });
+  const facetCuts: FacetCut[] = [];
+  facetCuts.push({
+    facetAddress: initFix.address,
+    functionSelectors: ["0xe1c7392a"],
+    action: FacetCutAction.Add,
+  });
+  const initFunc = new utils.Interface(initFix.abi).encodeFunctionData("init", []);
+  const acceptanceTime = await contract.getAcceptanceTime(facetCuts, initFix.address, initFunc);
   if (!acceptanceTime.isZero()) {
     console.log(`cut has already been proposed`);
     return { cuts: facetCuts, tx: undefined, abi: undefined };
@@ -155,7 +49,11 @@ const proposeDiamondUpgrade = async (
   console.log("calling propose");
 
   // Propose facet cut
-  return { cuts: facetCuts, tx: await contract.proposeDiamondCut(facetCuts, constants.AddressZero, "0x"), abi: abi };
+  return {
+    cuts: facetCuts,
+    tx: await contract.proposeDiamondCut(facetCuts, initFix.address, initFunc),
+    abi: undefined,
+  };
 };
 
 /**
@@ -234,6 +132,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment): Promise<voi
     { name: getDeploymentName("SwapAdminFacet"), contract: "SwapAdminFacet", args: [] },
     { name: getDeploymentName("DiamondCutFacet"), contract: "DiamondCutFacet", args: [] },
     { name: getDeploymentName("DiamondInit"), contract: "DiamondInit", args: [] },
+    { name: getDeploymentName("DiamondInitFix"), contract: "DiamondInitFix", args: [] },
   ];
   let connext;
   if (isDiamondUpgrade) {
@@ -253,13 +152,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment): Promise<voi
     // Fallthrough after proposal, will either work or fail depending on delay
     try {
       if (cuts.length) {
+        const initFix = (await hre.deployments.getOrNull(getDeploymentName("DiamondInitFix")))!;
+        const initFunc = new utils.Interface(initFix.abi).encodeFunctionData("init", []);
+
         const contract = new Contract(connext.address, connext.abi, deployer);
-        const acceptanceTime = (await contract.getAcceptanceTime(cuts, constants.AddressZero, "0x")).toNumber();
+        const acceptanceTime = (await contract.getAcceptanceTime(cuts, initFix.address, initFunc)).toNumber();
         const currentTimeStamp = Math.floor(Date.now() / 1000);
         if (acceptanceTime > currentTimeStamp) {
           console.log(`delay not elapsed. still wait for ${acceptanceTime - currentTimeStamp} sec`);
         } else {
-          const upgradeTx = await contract.diamondCut(cuts, constants.AddressZero, "0x");
+          const upgradeTx = await contract.diamondCut(cuts, initFix.address, initFunc);
           console.log("upgrade transaction", upgradeTx.hash);
           const receipt = await upgradeTx.wait();
           console.log("upgrade receipt", receipt);
@@ -363,4 +265,4 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment): Promise<voi
 export default func;
 
 func.tags = ["Connext", "prod", "local", "mainnet"];
-func.dependencies = ["Messaging"];
+//func.dependencies = ["Messaging"];

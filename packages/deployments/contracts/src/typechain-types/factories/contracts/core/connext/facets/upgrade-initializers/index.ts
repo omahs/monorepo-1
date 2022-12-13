@@ -2,3 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 export { DiamondInit__factory } from "./DiamondInit__factory";
+export { DiamondInitFix__factory } from "./DiamondInitFix__factory";

@@ -2,3 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { DiamondInit } from "./DiamondInit";
+export type { DiamondInitFix } from "./DiamondInitFix";

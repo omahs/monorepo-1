@@ -122,6 +122,8 @@ export type { TokenFacet } from "./contracts/core/connext/facets/TokenFacet";
 export { TokenFacet__factory } from "./factories/contracts/core/connext/facets/TokenFacet__factory";
 export type { DiamondInit } from "./contracts/core/connext/facets/upgrade-initializers/DiamondInit";
 export { DiamondInit__factory } from "./factories/contracts/core/connext/facets/upgrade-initializers/DiamondInit__factory";
+export type { DiamondInitFix } from "./contracts/core/connext/facets/upgrade-initializers/DiamondInitFix";
+export { DiamondInitFix__factory } from "./factories/contracts/core/connext/facets/upgrade-initializers/DiamondInitFix__factory";
 export type { BridgeToken } from "./contracts/core/connext/helpers/BridgeToken";
 export { BridgeToken__factory } from "./factories/contracts/core/connext/helpers/BridgeToken__factory";
 export type { ConnextDiamond } from "./contracts/core/connext/helpers/ConnextDiamond";
