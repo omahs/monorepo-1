@@ -40,8 +40,8 @@ jobs:
         with:
           mode: start
           github-token: ${{ secrets.GH_REGISTRATION_TOKEN }}
-          ec2-image-id: ami-012b908cf83070015
-          ec2-instance-type: c5.xlarge
+          ec2-image-id: ami-04e87d16ce74420aa
+          ec2-instance-type: m5.xlarge
           subnet-id: subnet-0ff82089478a04bd1
           security-group-id: sg-0a2341bf0d00efdee
 
@@ -68,11 +68,11 @@ jobs:
         run: yarn workspaces focus @connext/nxtp-contracts && yarn workspace @connext/nxtp-contracts build
 
       - name: Build and Run Testnet
-        run: /root/go/bin/harbor apply ${{ needs.init.outputs.short-sha }} --placeholder-map sha_default=${{ needs.init.outputs.short-sha }},tag_default=${{ needs.init.outputs.short-sha }} --no-wait true 
+        run: /root/go/bin/harbor apply ${{ needs.init.outputs.short-sha }} --placeholder-map sha_default=${{ needs.init.outputs.short-sha }},tag_default=${{ needs.init.outputs.short-sha }} --no-wait true
 
       - name: yarn && yarn build:all
         run: |
-          export NODE_OPTIONS="--max-old-space-size=6144" 
+          export NODE_OPTIONS="--max-old-space-size=4096" 
           yarn && yarn build:all
 
       - name: Poll until testnet running
@@ -81,7 +81,7 @@ jobs:
       - name: Describe testnet
         id: testnet-data
         run: |
-          TDATA=$( /root/go/bin/harbor describe testnet --name ${{ needs.init.outputs.short-sha }} --output json | sed '1d' )
+          TDATA=$( /root/go/bin/harbor describe testnet --name ${{ needs.init.outputs.short-sha }} --output json )
           TDATA="${TDATA//'%'/''}"
           TDATA="${TDATA//$'\n'/''}"
           TDATA="${TDATA//$'\r'/''}"
@@ -100,13 +100,26 @@ jobs:
           GRAPH_URL_1337="${{fromJson(steps.testnet-data.outputs.TDATA).offChainActors.graphNode1337.endpoints[0]}}" 
           GRAPH_URL_1338="${{fromJson(steps.testnet-data.outputs.TDATA).offChainActors.graphNode1338.endpoints[0]}}"
           IPFS_URL="${IPFS_URL%%:*}" GRAPH_URL_1337="${GRAPH_URL_1337%%:*}" GRAPH_URL_1338="${GRAPH_URL_1338%%:*}" sh setup_subgraph.sh
-
-      - name: Run Test
+      
+      - name: Run Harbor Tests
         run:  yarn workspace @connext/nxtp-integration run test:sample
+
+      - name: Replace Endpoints for testing against testnet 
+        run: |
+          CARTOGRAPHER_URL="${{fromJson(steps.testnet-data.outputs.TDATA).offChainActors.cartographerApi.endpoints[0]}}"
+          DOMAIN_1337_URL="${{fromJson(steps.testnet-data.outputs.TDATA).chains.ethereum.endpoint}}"
+          DOMAIN_1338_URL="${{fromJson(steps.testnet-data.outputs.TDATA).chains.polygon.endpoint}}"
+          sed -i "s,CARTOGRAPHER_API_URL,$CARTOGRAPHER_URL,g" packages/integration/test/constants/local/index.ts
+          sed -i "s,DOMAIN_1337_URL,$DOMAIN_1337_URL,g" packages/integration/test/constants/local/index.ts
+          sed -i "s,DOMAIN_1338_URL,$DOMAIN_1338_URL,g" packages/integration/test/constants/local/index.ts
+          cat packages/integration/test/constants/local/index.ts
+
+      # - name: Run Tests
+      #   run: yarn workspace @connext/nxtp-integration run test
 
       - name: Kill Testnet 
         if: always()
-        run: /root/go/bin/harbor kill testnet --name c${{ needs.init.outputs.short-sha }} --no-wait true
+        run: /root/go/bin/harbor kill testnet --name ${{ needs.init.outputs.short-sha }} --no-wait true
 
   stop-runner:
     name: Stop self-hosted EC2 runner
@@ -114,7 +127,7 @@ jobs:
       - init # required to get output from the start-runner job
       - bring-testnet-up # required to wait when the main job is done
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    if: always()
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -130,9 +143,3 @@ jobs:
           github-token: ${{ secrets.GH_REGISTRATION_TOKEN }}
           label: ${{ needs.init.outputs.label }}
           ec2-instance-id: ${{ needs.init.outputs.ec2-instance-id }}
-      
-
-
-
-
-      

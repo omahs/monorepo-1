@@ -21,7 +21,7 @@ export const PARAMETERS = {
     },
     RELAYER: { address: "0xc5842D5870622B406a71eeC1EcB2Df01D9dF5C28" },
     CARTOGRAPHER: {
-      url: "http://localhost:3000",
+      url: "http://CARTOGRAPHER_API_URL",
     },
     USER: {
       address: USER_WALLET.address,
@@ -35,13 +35,13 @@ export const PARAMETERS = {
   A: {
     DOMAIN: "1337",
     CHAIN: 1337,
-    RPC: ["http://localhost:8547"],
+    RPC: ["DOMAIN_1337_URL"],
     DEPLOYMENTS: null, // Must be set at runtime!
   },
   B: {
     DOMAIN: "1338",
     CHAIN: 1338,
-    RPC: ["http://localhost:8546"],
+    RPC: ["DOMAIN_1338_URL"],
     DEPLOYMENTS: null, // Must be set at runtime!
   },
 };
